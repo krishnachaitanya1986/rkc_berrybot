@@ -1,64 +1,50 @@
 import os
-import tempfile
-from faster_whisper import WhisperModel
+from pathlib import Path
+
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
 
 
-# Load Whisper only once
-model = WhisperModel(
-    "base",
-    device="cpu",
-    compute_type="int8"
-)
+def transcribe_audio(audio_file) -> str:
+    """
+    Transcribe a file path, bytes, or a Streamlit UploadedFile.
+    Returns the recognized text.
+    """
+    if not os.getenv("GROQ_API_KEY"):
+        raise RuntimeError("GROQ_API_KEY is missing. Add it to your .env file.")
 
+    client = Groq()
+    model = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
 
-def transcribe_audio(audio_data) -> str:
-    temp_path = None
-
-    try:
-        # Get raw bytes from Streamlit audio object
-        if hasattr(audio_data, "getvalue"):
-            audio_bytes = audio_data.getvalue()
-
-        elif isinstance(audio_data, bytes):
-            audio_bytes = audio_data
-
-        else:
-            raise ValueError(
-                f"Unsupported audio type: {type(audio_data)}"
+    if isinstance(audio_file, (str, Path)):
+        path = Path(audio_file)
+        with path.open("rb") as file:
+            result = client.audio.transcriptions.create(
+                file=(path.name, file.read()),
+                model=model,
+                language="en",
+                response_format="json",
             )
-
-        if not audio_bytes:
-            raise ValueError("Audio recording is empty.")
-
-        # Save Streamlit audio into a real temporary WAV file
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".wav"
-        ) as temp_audio:
-
-            temp_audio.write(audio_bytes)
-            temp_path = temp_audio.name
-
-        # faster-whisper can reliably process the file path
-        segments, info = model.transcribe(
-            temp_path,
-            beam_size=5,
-            language="en"
+    elif isinstance(audio_file, bytes):
+        result = client.audio.transcriptions.create(
+            file=("answer.wav", audio_file),
+            model=model,
+            language="en",
+            response_format="json",
+        )
+    elif hasattr(audio_file, "getvalue"):
+        # Streamlit UploadedFile
+        result = client.audio.transcriptions.create(
+            file=(getattr(audio_file, "name", "answer.wav"), audio_file.getvalue()),
+            model=model,
+            language="en",
+            response_format="json",
+        )
+    else:
+        raise TypeError(
+            "audio_file must be a file path, bytes, or Streamlit UploadedFile"
         )
 
-        transcription = " ".join(
-            segment.text.strip()
-            for segment in segments
-        ).strip()
-
-        return transcription
-
-    except Exception as e:
-        raise RuntimeError(
-            f"Transcription failed: {e}"
-        )
-
-    finally:
-        # Clean temporary file
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+    return result.text.strip()
