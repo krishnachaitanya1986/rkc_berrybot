@@ -2,6 +2,8 @@ from typing import TypedDict, List, Dict, Any
 
 class InterviewState(TypedDict):
     candidate_name: str
+    interviewer_name: str
+    interview_date: str
     track: str
     technologies: List[str]
     mode: str
@@ -20,3 +22,4 @@ class InterviewState(TypedDict):
     overall_score: float
     final_level: str
     final_report: str
+   
